@@ -1,0 +1,38 @@
+name: lab-worker
+
+on:
+  schedule:
+    - cron: "23 */6 * * *"
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: lab-worker
+  cancel-in-progress: true
+
+jobs:
+  island:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run lab worker island
+        run: python3 worker.py 300
+
+      - name: Commit results
+        run: |
+          if git diff --quiet -- logs; then
+            echo "no new results to commit"
+            exit 0
+          fi
+          PEAK=$(python3 -c 'import json; print(round(json.load(open("logs/evolve_scores.json"))["peak"], 4))' 2>/dev/null || echo "?")
+          git config user.name "sovereign-lab worker"
+          git config user.email "worker@users.noreply.github.com"
+          git add logs
+          git commit -m "island $(date -u +%Y-%m-%dT%H:%MZ) evolve peak=$PEAK"
+          git push
