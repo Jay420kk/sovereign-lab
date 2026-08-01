@@ -4,7 +4,8 @@
 Runs one complete worker "island" within a strict time budget (the
 Actions job is capped, so we must always finish and commit results).
 
-  1. evolve_mind  — evolve a fresh 6-6-2 neural population
+  1. evolve_mind  — evolve a 6-6-2 neural population with open-ended
+                     escalation (brain grows when the task is solved)
   2. math_discovery — brute-force integer relations among constants
   3. writes JSON results to logs/ for the workflow to commit
 
@@ -30,6 +31,13 @@ import evolve_mind  # noqa: E402
 import math_discovery  # noqa: E402
 
 
+def read_json(path, default=None):
+    try:
+        return json.loads(path.read_text())
+    except Exception:
+        return default
+
+
 def main():
     budget_min = int(sys.argv[1]) if len(sys.argv) > 1 else 300
     deadline = time.time() + budget_min * 60
@@ -41,25 +49,45 @@ def main():
     print(f"[worker] start {meta['ts']} budget={budget_min}min", flush=True)
 
     # 1) evolve — pick generation count so we finish inside the budget.
-    #    Home runs ~1000 gens in ~7.5h on 4 threads (~30s/gen, 50-brain
-    #    population, serial scoring). The 4-core ARM runner is comparable,
-    #    so budget with a safe 30s/gen estimate.
-    gens = max(200, int((budget_min * 60 * 0.85) / 30))
-    print(f"[worker] evolve: {gens} gens", flush=True)
-    scores = evolve_mind.run(gens)
-    elapsed = time.time() - deadline + budget_min * 60
+    #    Home runs ~1000 gens in ~7.5h on 4 threads (~30s/gen, 64-brain
+    #    population, serial scoring). The ARM runner is ~25x faster. The
+    #    deadline guarantees we stop cleanly and always write results,
+    #    even if escalation slows later generations.
+    gens = max(50, int((budget_min * 60 * 0.8) / 30))
+    print(f"[worker] evolve: {gens} gens (deadline {deadline - time.time():.0f}s)", flush=True)
+    scores = evolve_mind.run(gens, deadline=deadline)
+    elapsed = budget_min * 60 - (deadline - time.time())
     print(f"[worker] evolve done in {elapsed:.0f}s, peak={max(scores):.4f}", flush=True)
+    ev = read_json(ROOT / "evolve" / "logs" / "evolve_scores.json", {}) or {}
     with open(LOGDIR / "evolve_scores.json", "w") as f:
-        json.dump({"meta": meta, "gens": gens, "peak": max(scores), "scores": scores}, f)
+        json.dump({
+            "meta": meta, "gens": gens, "peak": max(scores), "scores": scores,
+            "final_level": ev.get("final_level", 0),
+            "ascensions": ev.get("ascensions", []),
+        }, f)
     with open(LOGDIR / "evolve_best.json", "w") as f:
         f.write((ROOT / "evolve" / "logs" / "evolve_best.json").read_text())
 
-    # 2) math discovery — 80 digits, leave headroom for the commit step
+    # 2) math discovery — bounded by remaining budget
     remaining = deadline - time.time()
     print(f"[worker] math: remaining {remaining:.0f}s", flush=True)
     math_discovery.main(80)
     with open(LOGDIR / "math_findings.json", "w") as f:
         f.write((ROOT / "math-discovery" / "logs" / "math_findings.json").read_text())
+
+    # 3) update island manifest (gen_page reads this for history)
+    manifest = read_json(LOGDIR / "island_manifest.json", []) or []
+    mathf = read_json(LOGDIR / "math_findings.json", {}) or {}
+    manifest.append({
+        "ts": meta["ts"],
+        "peak": max(scores),
+        "gens": gens,
+        "level": ev.get("final_level", 0),
+        "ascensions": len(ev.get("ascensions", [])),
+        "math_hits": len(mathf.get("hits", [])),
+    })
+    with open(LOGDIR / "island_manifest.json", "w") as f:
+        json.dump(manifest[-50:], f, indent=1)  # keep last 50
 
     print("[worker] done", flush=True)
 

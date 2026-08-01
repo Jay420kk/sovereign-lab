@@ -39,17 +39,20 @@ def main():
     sections = []
 
     rows = "".join(
-        "<tr><td>{ts}</td><td>{peak}</td><td>{gens}</td><td>{hits}</td></tr>".format(
+        "<tr><td>{ts}</td><td>{peak}</td><td>{gens}</td><td>{lvl}</td><td>{asc}</td><td>{hits}</td></tr>".format(
             ts=esc(i.get("ts", "")), peak=i.get("peak", "?"),
-            gens=i.get("gens", "?"), hits=i.get("math_hits", "?"))
+            gens=i.get("gens", "?"), lvl=i.get("level", "?"),
+            asc=i.get("ascensions", 0), hits=i.get("math_hits", "?"))
         for i in islands[-30:][::-1])
     sections.append(
         "<h2>Cloud islands (past 30 of {n})</h2>".format(n=len(islands))
-        + "<table><tr><th>time (UTC)</th><th>evolve peak</th><th>gens</th><th>math hits</th></tr>"
+        + "<table><tr><th>time (UTC)</th><th>peak</th><th>gens</th><th>level</th><th>ascensions</th><th>math hits</th></tr>"
         + rows + "</table>" if rows else "<h2>Cloud islands</h2><p>no islands yet</p>")
 
     if latest and latest.get("scores"):
         scores = latest["scores"]
+        final_level = latest.get("final_level", 0)
+        asc = latest.get("ascensions", [])
         step = max(1, len(scores) // 120)
         pts = scores[::step]
         w, h = 800, 180
@@ -57,8 +60,11 @@ def main():
         path = " ".join(
             "L{:.0f} {:.0f}".format(i / len(pts) * w, h - pts[i] / mx * h)
             for i in range(len(pts)))
+        asc_text = ""
+        if asc:
+            asc_text = " &middot; ascended {}x (now L{})".format(len(asc), final_level)
         sections.append(
-            "<h2>Latest island curve (peak {})</h2>".format(latest.get("peak"))
+            "<h2>Latest island curve (peak {}{})</h2>".format(latest.get("peak"), asc_text)
             + "<svg viewBox='0 0 {0} {1}' width='100%'><path d='M0 {1} {2}' fill='none' stroke='#7fb3d5'/></svg>".format(w, h, path))
 
     if mathf:
