@@ -89,11 +89,15 @@ def main():
     html = """<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Sovereign Lab</title><style>
-body{background:#101418;color:#d8dee9;font-family:monospace;max-width:860px;margin:auto;padding:1em}
-h1{color:#7fb3d5}h2{color:#b48ead;border-bottom:1px solid #1c232b;padding-bottom:4px}
-table{width:100%%;border-collapse:collapse}td,th{border:1px solid #1c232b;padding:4px;text-align:left}
-.j{margin:8px 0;padding:6px;background:#161c22;border-radius:4px}
-a{color:#7fb3d5}summary{cursor:pointer}</style></head><body>
+body {{ background: #101418; color: #d8dee9; font-family: monospace; max-width: 860px; margin: auto; padding: 1em }}
+h1 {{ color: #7fb3d5 }}
+h2 {{ color: #b48ead; border-bottom: 1px solid #1c232b; padding-bottom: 4px }}
+table {{ width: 100%; border-collapse: collapse }}
+td, th {{ border: 1px solid #1c232b; padding: 4px; text-align: left }}
+.j {{ margin: 8px 0; padding: 6px; background: #161c22; border-radius: 4px }}
+a {{ color: #7fb3d5 }}
+summary {{ cursor: pointer }}
+</style></head><body>
 <h1>Sovereign Lab</h1>
 <p>generated {ts} UTC &middot; <a href="https://github.com/Jay420kk/sovereign-lab">repo</a></p>
 {sections}
