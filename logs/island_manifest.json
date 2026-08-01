@@ -30,5 +30,14 @@
   "level": 0,
   "ascensions": 0,
   "math_hits": 0
+ },
+ {
+  "ts": "2026-08-01T17:38:51Z",
+  "peak": 0.9977555356197699,
+  "gens": 1920,
+  "level": 4,
+  "seed_level": 0,
+  "ascensions": 4,
+  "math_hits": 11
  }
 ]
