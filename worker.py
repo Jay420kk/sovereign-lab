@@ -70,7 +70,7 @@ def main():
     #    even if escalation slows later generations.
     gens = max(50, int((budget_min * 60 * 0.8) / 30))
     seed = load_seed()
-    seed_lvl = seed.get("level") if seed else None
+    seed_lvl = seed.get("level") if seed and "level" in seed else None
     print(f"[worker] evolve: {gens} gens (deadline {deadline - time.time():.0f}s, "
           f"seed={'L' + str(seed_lvl) if seed_lvl is not None else 'fresh'})", flush=True)
     scores = evolve_mind.run(gens, deadline=deadline, seed=seed)
