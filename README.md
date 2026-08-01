@@ -25,6 +25,12 @@ Each committed island stores `logs/evolve_scores.json` (best-score curve +
 peak), `logs/evolve_best.json` (the winning brain), and
 `logs/math_findings.json` (constant bank + any integer relations found).
 
+Islands inherit evolution: every run seeds its population from the previous
+island's best brain (`logs/evolve_best.json`), so progress accumulates across
+runs instead of restarting from scratch. Math discovery searches 2-3 constant
+integer relations over a ~16-constant bank (Machin-style arctangents included,
+so real identities like `pi = 16*atan(1/5) - 4*atan(1/239)` turn up).
+
 ## Run locally
 
 ```sh

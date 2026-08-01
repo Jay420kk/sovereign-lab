@@ -38,6 +38,21 @@ def read_json(path, default=None):
         return default
 
 
+def load_seed():
+    """The previous island's best brain (committed at logs/evolve_best.json).
+
+    Each island gets a fresh checkout of latest main, so this is the
+    cumulative best found so far — cross-island inheritance instead of
+    restarting evolution from scratch every run."""
+    try:
+        d = json.loads((ROOT / "logs" / "evolve_best.json").read_text())
+        if isinstance(d, dict) and d.get("w1") and d.get("w2"):
+            return d
+    except Exception:
+        pass
+    return None
+
+
 def main():
     budget_min = int(sys.argv[1]) if len(sys.argv) > 1 else 300
     deadline = time.time() + budget_min * 60
@@ -54,8 +69,11 @@ def main():
     #    deadline guarantees we stop cleanly and always write results,
     #    even if escalation slows later generations.
     gens = max(50, int((budget_min * 60 * 0.8) / 30))
-    print(f"[worker] evolve: {gens} gens (deadline {deadline - time.time():.0f}s)", flush=True)
-    scores = evolve_mind.run(gens, deadline=deadline)
+    seed = load_seed()
+    seed_lvl = seed.get("level") if seed else None
+    print(f"[worker] evolve: {gens} gens (deadline {deadline - time.time():.0f}s, "
+          f"seed={'L' + str(seed_lvl) if seed_lvl is not None else 'fresh'})", flush=True)
+    scores = evolve_mind.run(gens, deadline=deadline, seed=seed)
     elapsed = budget_min * 60 - (deadline - time.time())
     print(f"[worker] evolve done in {elapsed:.0f}s, peak={max(scores):.4f}", flush=True)
     ev = read_json(ROOT / "evolve" / "logs" / "evolve_scores.json", {}) or {}
@@ -63,6 +81,7 @@ def main():
         json.dump({
             "meta": meta, "gens": gens, "peak": max(scores), "scores": scores,
             "final_level": ev.get("final_level", 0),
+            "seed_level": ev.get("seed_level"),
             "ascensions": ev.get("ascensions", []),
         }, f)
     with open(LOGDIR / "evolve_best.json", "w") as f:
@@ -71,7 +90,7 @@ def main():
     # 2) math discovery — bounded by remaining budget
     remaining = deadline - time.time()
     print(f"[worker] math: remaining {remaining:.0f}s", flush=True)
-    math_discovery.main(80)
+    math_discovery.main(80, deadline=deadline)
     with open(LOGDIR / "math_findings.json", "w") as f:
         f.write((ROOT / "math-discovery" / "logs" / "math_findings.json").read_text())
 
@@ -83,6 +102,7 @@ def main():
         "peak": max(scores),
         "gens": gens,
         "level": ev.get("final_level", 0),
+        "seed_level": ev.get("seed_level"),
         "ascensions": len(ev.get("ascensions", [])),
         "math_hits": len(mathf.get("hits", [])),
     })

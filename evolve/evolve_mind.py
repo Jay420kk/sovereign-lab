@@ -28,12 +28,15 @@ from pathlib import Path
 OUT_DIR = Path(__file__).parent
 LOGDIR = OUT_DIR / "logs"
 
+# input width (6 sensors) and output width (2D dx,dy movement) are FIXED;
+# escalation grows only the hidden layer. Growing input/output widths would
+# break score_brain (it feeds 6 sensors and unpacks exactly 2 outputs).
 LEVELS = [
     dict(layers=[6, 6, 2], food_r=4.0, steps=300, trials=8, clamp=6.0, dist_scale=1.5),
-    dict(layers=[8, 8, 3], food_r=8.0, steps=400, trials=8, clamp=12.0, dist_scale=3.0),
-    dict(layers=[10, 10, 4], food_r=16.0, steps=500, trials=10, clamp=24.0, dist_scale=6.0),
-    dict(layers=[14, 14, 6], food_r=32.0, steps=600, trials=12, clamp=48.0, dist_scale=12.0),
-    dict(layers=[18, 18, 8], food_r=64.0, steps=700, trials=14, clamp=96.0, dist_scale=24.0),
+    dict(layers=[6, 8, 2], food_r=8.0, steps=400, trials=8, clamp=12.0, dist_scale=3.0),
+    dict(layers=[6, 10, 2], food_r=16.0, steps=500, trials=10, clamp=24.0, dist_scale=6.0),
+    dict(layers=[6, 14, 2], food_r=32.0, steps=600, trials=12, clamp=48.0, dist_scale=12.0),
+    dict(layers=[6, 18, 2], food_r=64.0, steps=700, trials=14, clamp=96.0, dist_scale=24.0),
 ]
 MAX_LEVEL = len(LEVELS) - 1
 
@@ -48,6 +51,10 @@ def make_brain(seed=None, sizes=(6, 6, 2)):
 
 def brain_fwd(b, x):
     w1, w2 = b["w1"], b["w2"]
+    # pad sensors to the brain's input width so grown/legacy brains (wider
+    # w1) never crash — extra inputs just see 0, so old weights stay valid
+    if len(x) < len(w1[0]):
+        x = x + [0.0] * (len(w1[0]) - len(x))
     h = [math.tanh(sum(w1[j][i] * x[i] for i in range(len(w1[0])))) for j in range(len(w1))]
     return [math.tanh(sum(w2[k][j] * h[j] for j in range(len(h)))) for k in range(len(w2))]
 
@@ -97,17 +104,30 @@ def score_brain(b, task, rng):
 
 
 def run(generations=200, pop_size=64, ascend_threshold=0.98, ascend_streak_req=5,
-        deadline=None):
+        deadline=None, seed=None):
     """Evolve; ASCEND levels when the task is solved. Returns best-score list.
 
     deadline: unix ts — the loop stops cleanly at the budget, so callers
     (worker islands) always get results even if escalation slowed things down.
+
+    seed: dict {"level", "w1", "w2", ...} — the best brain from a previous
+    island (cross-island inheritance). The population starts at the seed's
+    level with the old weights embedded top-left, so evolution accumulates
+    across islands instead of restarting from scratch every run.
     """
     LOGDIR.mkdir(exist_ok=True)
     rng = random.Random()
-    level = 0
-    task = LEVELS[level]
-    pop = [make_brain(i, task["layers"]) for i in range(pop_size)]
+    if seed and seed.get("w1") and seed.get("w2"):
+        level = min(max(int(seed.get("level") or 0), 0), MAX_LEVEL)
+        task = LEVELS[level]
+        pop = [grow_brain(seed, task["layers"])] + \
+              [make_brain(None, task["layers"]) for _ in range(pop_size - 1)]
+        print(f"seeded population at level {level} (layers={task['layers']}) "
+              f"from previous island's best", flush=True)
+    else:
+        level = 0
+        task = LEVELS[level]
+        pop = [make_brain(i, task["layers"]) for i in range(pop_size)]
     best_scores, ascensions = [], []
     streak = 0
     t0 = time.time()
@@ -145,6 +165,7 @@ def run(generations=200, pop_size=64, ascend_threshold=0.98, ascend_streak_req=5
 
     out = {
         "final_level": level,
+        "seed_level": seed.get("level") if seed and seed.get("w1") else None,
         "levels": [l["layers"] for l in LEVELS],
         "ascensions": ascensions,
         "scores": best_scores,

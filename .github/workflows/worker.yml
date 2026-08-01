@@ -23,7 +23,7 @@ permissions:
 
 concurrency:
   group: lab-worker
-  cancel-in-progress: true
+  cancel-in-progress: false   # queue instead of killing a running island mid-flight
 
 jobs:
   island:
@@ -37,13 +37,23 @@ jobs:
           BUDGET: ${{ inputs.budget_min }}
         run: python3 worker.py "${BUDGET:-300}"
 
-      - name: Build status page
-        run: python3 gen_page.py
-
       - name: Commit results
         run: |
           git config user.name "sovereign-lab worker"
           git config user.email "worker@users.noreply.github.com"
+
+          # Merge laptop-side commits. docs/index.html is derived output, so on
+          # conflict keep whichever side and regenerate below. Resolve ALL
+          # unmerged paths (docs + logs) so rebase --continue can finish; if it
+          # still fails, abort (the island commit stays local) and fall through.
+          merge_main() {
+            git pull --rebase origin main 2>/dev/null || {
+              git checkout --theirs -- docs logs 2>/dev/null || true
+              git add -A
+              GIT_EDITOR=true git rebase --continue 2>/dev/null || git rebase --abort 2>/dev/null || true
+            }
+          }
+
           git add logs docs
           if git diff --cached --quiet -- logs docs; then
             echo "no changes to commit"
@@ -53,4 +63,13 @@ jobs:
           ASCENSIONS=$(python3 -c 'import json; print(len(json.load(open("logs/evolve_scores.json")).get("ascensions", [])))' 2>/dev/null || echo "0")
           PEAK=$(python3 -c 'import json; print(round(json.load(open("logs/evolve_scores.json"))["peak"], 4))' 2>/dev/null || echo "?")
           git commit -m "island $(date -u +%Y-%m-%dT%H:%MZ) level=$LEVEL peak=$PEAK ascensions=$ASCENSIONS"
-          git push
+          merge_main
+          # Regenerate the page from the fully-merged logs. If regeneration
+          # fails, the resolved docs (no conflict markers) are still committed.
+          python3 gen_page.py || true
+          git add logs docs
+          git diff --cached --quiet || git commit -m "page $(date -u +%Y-%m-%dT%H:%MZ)"
+          # Push, retrying once after a re-merge: the laptop may push between our
+          # pull and push, and a rejected push would lose the island's results
+          # (the runner is ephemeral).
+          git push origin main || { merge_main; git push origin main; }
