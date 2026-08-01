@@ -38,6 +38,22 @@ def main():
 
     sections = []
 
+    # all-time best peak + a sparkline of every island's peak
+    peaks = [i.get("peak") for i in islands if isinstance(i.get("peak"), (int, float))]
+    if peaks:
+        mx = max(peaks) or 1
+        best_ts = next((i.get("ts", "") for i in reversed(islands)
+                        if i.get("peak") == mx), "")
+        n = len(peaks)
+        w, h = 800, 60
+        pts = " ".join(
+            "L{:.0f} {:.0f}".format(i / max(1, n - 1) * w, h - p / mx * (h - 8) - 4)
+            for i, p in enumerate(peaks))
+        sections.append(
+            "<h2>All-time best peak: {:.4f} <small>(island {})</small></h2>".format(mx, esc(best_ts))
+            + "<svg viewBox='0 0 {0} {1}' width='100%'><path d='M0 {1} {2}' "
+              "fill='none' stroke='#b48ead' stroke-width='2'/></svg>".format(w, h, pts))
+
     rows = "".join(
         "<tr><td>{ts}</td><td>{peak}</td><td>{gens}</td><td>{lvl}</td><td>{asc}</td><td>{hits}</td><td>{seed}</td></tr>".format(
             ts=esc(i.get("ts", "")), peak=i.get("peak", "?"),

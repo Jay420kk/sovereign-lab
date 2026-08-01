@@ -103,6 +103,40 @@ def score_brain(b, task, rng):
     return total / task["trials"]
 
 
+def _score_one(args):
+    """score_brain wrapper for multiprocessing: (brain, task, rng_seed)."""
+    b, task, seed = args
+    return score_brain(b, task, random.Random(seed))
+
+
+def _score_pop(pop, task, rng, pool):
+    """Score the whole population, best-first.
+
+    With a pool: each brain is scored in a worker with its own RNG stream, so
+    food placement stays uniform and independent across brains. Without a pool:
+    the classic serial loop sharing one rng. Returns [(score, brain)] sorted
+    descending."""
+    if pool is not None:
+        seeds = [rng.randrange(1 << 30) for _ in pop]
+        scores = pool.map(_score_one, [(b, task, s) for b, s in zip(pop, seeds)])
+        return sorted(zip(scores, pop), key=lambda p: p[0], reverse=True)
+    return sorted(((score_brain(b, task, rng), b) for b in pop),
+                  key=lambda p: p[0], reverse=True)
+
+
+def _make_pool():
+    """Multiprocessing pool for scoring (stdlib-only, no numpy needed). Returns
+    None when workers can't be spawned (e.g. Windows, or a constrained runner)
+    — callers then score serially. Capped at 4 workers: the lab targets are
+    4-thread machines (GitHub ARM64 runner, 2-core/4-thread laptop)."""
+    try:
+        import multiprocessing as mp
+        n = min(4, max(1, mp.cpu_count() or 1))
+        return mp.Pool(processes=n)
+    except Exception:
+        return None
+
+
 def run(generations=200, pop_size=64, ascend_threshold=0.98, ascend_streak_req=5,
         deadline=None, seed=None):
     """Evolve; ASCEND levels when the task is solved. Returns best-score list.
@@ -114,6 +148,9 @@ def run(generations=200, pop_size=64, ascend_threshold=0.98, ascend_streak_req=5
     island (cross-island inheritance). The population starts at the seed's
     level with the old weights embedded top-left, so evolution accumulates
     across islands instead of restarting from scratch every run.
+
+    Scoring is parallelized across cores with multiprocessing (stdlib-only),
+    falling back to serial if a pool can't be created.
     """
     LOGDIR.mkdir(exist_ok=True)
     rng = random.Random()
@@ -128,16 +165,56 @@ def run(generations=200, pop_size=64, ascend_threshold=0.98, ascend_streak_req=5
         level = 0
         task = LEVELS[level]
         pop = [make_brain(i, task["layers"]) for i in range(pop_size)]
+
+    pool = _make_pool()
+    try:
+        best_scores, ascensions, level, task, best = _run_generations(
+            pop, level, task, rng, pool,
+            generations, pop_size, ascend_threshold, ascend_streak_req, deadline)
+    finally:
+        if pool is not None:
+            pool.close()
+            pool.terminate()
+            pool.join()
+
+    out = {
+        "final_level": level,
+        "seed_level": seed.get("level") if seed and seed.get("w1") else None,
+        "levels": [l["layers"] for l in LEVELS],
+        "ascensions": ascensions,
+        "scores": best_scores,
+    }
+    with open(LOGDIR / "evolve_scores.json", "w") as f:
+        json.dump(out, f)
+    with open(LOGDIR / "evolve_best.json", "w") as f:
+        json.dump({"level": level, "layers": task["layers"], **best}, f)
+    print(f"done. level {level}, peak={max(best_scores):.4f}, "
+          f"ascensions={len(ascensions)}  -> {LOGDIR/'evolve_scores.json'}")
+    return best_scores
+
+
+def _run_generations(pop, level, task, rng, pool, generations, pop_size,
+                     ascend_threshold, ascend_streak_req, deadline):
+    """The generation loop: score (parallel if pool given) -> mutate -> select.
+
+    Returns (best_scores, ascensions, final_level, final_task, best_brain).
+    """
     best_scores, ascensions = [], []
     streak = 0
     t0 = time.time()
+    best = pop[0]  # so generations=0 still writes a valid best brain
 
     for gen in range(generations):
         if deadline is not None and time.time() > deadline:
             print(f"budget exhausted at gen {gen}", flush=True)
             break
-        scored = sorted(((score_brain(b, task, rng), b) for b in pop),
-                        key=lambda p: p[0], reverse=True)
+        try:
+            scored = _score_pop(pop, task, rng, pool)
+        except Exception:
+            # e.g. a worker died — degrade gracefully to serial for the rest
+            print("parallel scoring failed — falling back to serial", flush=True)
+            pool = None
+            scored = _score_pop(pop, task, rng, None)
         best_score, best = scored[0]
         best_scores.append(best_score)
         tag = ""
@@ -163,20 +240,7 @@ def run(generations=200, pop_size=64, ascend_threshold=0.98, ascend_streak_req=5
             nxt.append(mutate(parent, rate=0.12, sigma=max(0.02, 0.4 / (1 + gen / 60))))
         pop = nxt
 
-    out = {
-        "final_level": level,
-        "seed_level": seed.get("level") if seed and seed.get("w1") else None,
-        "levels": [l["layers"] for l in LEVELS],
-        "ascensions": ascensions,
-        "scores": best_scores,
-    }
-    with open(LOGDIR / "evolve_scores.json", "w") as f:
-        json.dump(out, f)
-    with open(LOGDIR / "evolve_best.json", "w") as f:
-        json.dump({"level": level, "layers": task["layers"], **best}, f)
-    print(f"done. level {level}, peak={max(best_scores):.4f}, "
-          f"ascensions={len(ascensions)}  -> {LOGDIR/'evolve_scores.json'}")
-    return best_scores
+    return best_scores, ascensions, level, task, best
 
 
 if __name__ == "__main__":

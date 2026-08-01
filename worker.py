@@ -16,6 +16,7 @@ Usage: python3 worker.py [time_budget_minutes]
 """
 
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -64,11 +65,13 @@ def main():
     print(f"[worker] start {meta['ts']} budget={budget_min}min", flush=True)
 
     # 1) evolve — pick generation count so we finish inside the budget.
-    #    Home runs ~1000 gens in ~7.5h on 4 threads (~30s/gen, 64-brain
-    #    population, serial scoring). The ARM runner is ~25x faster. The
-    #    deadline guarantees we stop cleanly and always write results,
-    #    even if escalation slows later generations.
-    gens = max(50, int((budget_min * 60 * 0.8) / 30))
+    #    Scoring is parallelized across cores (multiprocessing, stdlib), so the
+    #    generation cap scales with core count (~30s/gen serial baseline). The
+    #    cap is aspirational: the deadline is the real guard, guaranteeing we
+    #    stop cleanly and always write results, even if escalation slows later
+    #    generations.
+    ncores = max(1, os.cpu_count() or 1)
+    gens = max(50, int((budget_min * 60 * 0.8) / 30) * min(ncores, 4))
     seed = load_seed()
     seed_lvl = seed.get("level") if seed and "level" in seed else None
     print(f"[worker] evolve: {gens} gens (deadline {deadline - time.time():.0f}s, "
