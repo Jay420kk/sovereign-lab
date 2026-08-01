@@ -54,6 +54,29 @@ def load_seed():
     return None
 
 
+def planned_gens(budget_min, ncores):
+    """Over-requested generation cap; the deadline is the real guard.
+
+    evolve_mind.run() stops at whichever comes first — generations exhausted
+    or the deadline. Under-requesting is the failure mode: a stale per-gen
+    estimate (any fixed one drifts as levels/hardware change) lets the loop
+    finish early and the unused evolve budget silently goes to math instead
+    of more generations. So we ask for far more than could possibly fit and
+    let the deadline bind: the multiprocessing pool's speedup then converts
+    directly into more generations within the budget (the ~4x goal). The
+    floor of 50 keeps tiny budgets productive. The runtime decides the real
+    count completed.
+    """
+    workers = min(max(ncores, 1), 4)
+    # optimistic floor: no generation ever costs less than ~0.5s (pop 64,
+    # >=8 trials, >=300 steps — measured parallel gen is ~1.25s at L0 pop 64
+    # on 4 cores, so this floor leaves ~2.5x headroom), so the cap is always
+    # far above what the deadline allows -> the deadline, not this cap, is
+    # the binding constraint
+    optimistic = (budget_min * 60 * 0.8) / 0.5
+    return max(50, int(optimistic) * workers)
+
+
 def main():
     budget_min = int(sys.argv[1]) if len(sys.argv) > 1 else 300
     deadline = time.time() + budget_min * 60
@@ -64,25 +87,28 @@ def main():
     }
     print(f"[worker] start {meta['ts']} budget={budget_min}min", flush=True)
 
-    # 1) evolve — pick generation count so we finish inside the budget.
-    #    Scoring is parallelized across cores (multiprocessing, stdlib), so the
-    #    generation cap scales with core count (~30s/gen serial baseline). The
-    #    cap is aspirational: the deadline is the real guard, guaranteeing we
-    #    stop cleanly and always write results, even if escalation slows later
-    #    generations.
-    ncores = max(1, os.cpu_count() or 1)
-    gens = max(50, int((budget_min * 60 * 0.8) / 30) * min(ncores, 4))
+    # 1) evolve — over-requested generation cap (see planned_gens): the
+    #    deadline is the real guard, so we ask for far more than fits and let
+    #    it bind. evolve gets its own sub-deadline (80% of budget) so math
+    #    discovery always keeps its slice; the pool's speedup then shows up as
+    #    more generations actually completed within that window.
     seed = load_seed()
+    ncores = max(1, os.cpu_count() or 1)
+    gens = planned_gens(budget_min, ncores)
     seed_lvl = seed.get("level") if seed and "level" in seed else None
-    print(f"[worker] evolve: {gens} gens (deadline {deadline - time.time():.0f}s, "
+    evolve_deadline = time.time() + budget_min * 60 * 0.8
+    print(f"[worker] evolve: cap {gens} gens (deadline in "
+          f"{evolve_deadline - time.time():.0f}s, "
           f"seed={'L' + str(seed_lvl) if seed_lvl is not None else 'fresh'})", flush=True)
-    scores = evolve_mind.run(gens, deadline=deadline, seed=seed)
+    scores = evolve_mind.run(gens, deadline=evolve_deadline, seed=seed)
+    # time spent so far (== evolve time: evolve is the first stage)
     elapsed = budget_min * 60 - (deadline - time.time())
-    print(f"[worker] evolve done in {elapsed:.0f}s, peak={max(scores):.4f}", flush=True)
+    print(f"[worker] evolve done: {len(scores)} gens in {elapsed:.0f}s, "
+          f"peak={max(scores):.4f}", flush=True)
     ev = read_json(ROOT / "evolve" / "logs" / "evolve_scores.json", {}) or {}
     with open(LOGDIR / "evolve_scores.json", "w") as f:
         json.dump({
-            "meta": meta, "gens": gens, "peak": max(scores), "scores": scores,
+            "meta": meta, "gens": len(scores), "peak": max(scores), "scores": scores,
             "final_level": ev.get("final_level", 0),
             "seed_level": ev.get("seed_level"),
             "ascensions": ev.get("ascensions", []),
@@ -103,7 +129,7 @@ def main():
     manifest.append({
         "ts": meta["ts"],
         "peak": max(scores),
-        "gens": gens,
+        "gens": len(scores),  # actual gens completed (deadline-bound), not the cap
         "level": ev.get("final_level", 0),
         "seed_level": ev.get("seed_level"),
         "ascensions": len(ev.get("ascensions", [])),

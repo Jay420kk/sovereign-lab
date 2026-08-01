@@ -63,15 +63,28 @@ class TestLoadSeed(unittest.TestCase):
 
 
 class TestGensScaling(unittest.TestCase):
+    def test_gens_scales_with_cores(self):
+        # over-requested cap scales with workers: 4 cores -> 4x the 1-core cap
+        g1 = worker.planned_gens(300, 1)
+        g4 = worker.planned_gens(300, 4)
+        self.assertAlmostEqual(g4 / g1, 4.0, places=2)
+
     def test_gens_scales_with_budget(self):
-        # 300 min budget, 1 core: 300*60*0.8/30 = 480
-        gens = max(50, int((300 * 60 * 0.8) / 30) * 1)
-        self.assertEqual(gens, 480)
+        # bigger budget -> proportionally bigger cap
+        g100 = worker.planned_gens(100, 4)
+        g300 = worker.planned_gens(300, 4)
+        self.assertGreater(g300, g100)
+        self.assertAlmostEqual(g300 / g100, 3.0, places=1)
+
+    def test_gens_over_requests_deadline_binds(self):
+        # the cap must be far above what could run in budget: the deadline,
+        # not the cap, is the real guard (so under-requesting never wastes
+        # budget by finishing evolve early)
+        self.assertGreater(worker.planned_gens(300, 4), 10000)
 
     def test_gens_min_floor(self):
-        # tiny budget still gets the 50-gen floor
-        gens = max(50, int((1 * 60 * 0.8) / 30) * 4)
-        self.assertEqual(gens, 50)
+        # sub-minute budget still gets the 50-gen floor
+        self.assertEqual(worker.planned_gens(0.1, 4), 50)
 
 
 if __name__ == "__main__":
