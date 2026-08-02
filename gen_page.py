@@ -112,8 +112,11 @@ def main():
             + "<text x='{:.0f}' y='{:.0f}' text-anchor='middle' fill='#7c8698' "
               "font-size='9' font-family='monospace'>island {}</text>".format(lx, by - 20, esc(best_ts))
         )
+        n_islands = len(islands)
+        badge = "{} island{}".format(n_islands, "" if n_islands == 1 else "s")
         sections.append(
-            "<h2>All-time best peak: {:.4f} <small>(island {})</small></h2>".format(mx, esc(best_ts))
+            "<h2>All-time best peak: {0:.4f} <small>(island {1})</small> "
+            "<span class='badge'>{2}</span></h2>".format(mx, esc(best_ts), badge)
             + "<svg viewBox='0 0 {0} {1}' width='100%'>".format(w, h)
             + grad
             + "<path d='{0}' fill='none' stroke='url(#peakgrad)' stroke-width='2'/>".format(svg_path(coords))
@@ -174,6 +177,7 @@ def main():
 body {{ background: #101418; color: #d8dee9; font-family: monospace; max-width: 860px; margin: auto; padding: 1em }}
 h1 {{ color: #7fb3d5 }}
 h2 {{ color: #b48ead; border-bottom: 1px solid #1c232b; padding-bottom: 4px }}
+.badge {{ display:inline-block; background:#e5c07b; color:#0b0e14; font-size:10px; letter-spacing:.08em; padding:2px 7px; border-radius:999px; vertical-align:middle; margin-left:8px }}
 table {{ width: 100%; border-collapse: collapse }}
 td, th {{ border: 1px solid #1c232b; padding: 4px; text-align: left }}
 .j {{ margin: 8px 0; padding: 6px; background: #161c22; border-radius: 4px }}
