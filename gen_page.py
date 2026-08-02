@@ -30,6 +30,15 @@ def esc(s):
     return (s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
+def svg_path(coords):
+    """Build an SVG path 'd' string from a list of (x, y) points.
+
+    Starts with M on the first point (no baseline drop), then L for the rest.
+    """
+    return "M{:.0f} {:.0f}".format(*coords[0]) + "".join(
+        " L{:.0f} {:.0f}".format(x, y) for x, y in coords[1:])
+
+
 def main():
     islands = read_json(LOGS / "island_manifest.json", []) or []
     latest = read_json(LOGS / "evolve_scores.json")
@@ -78,12 +87,10 @@ def main():
             xs = [i / max(1, n - 1) * w for i in range(n)]
         coords = [(x, h - (p - base) / (hi - base) * (h - 8) - 4)
                   for x, p in zip(xs, peaks)]
-        pts = "M{:.0f} {:.0f}".format(*coords[0]) + " ".join(
-            " L{:.0f} {:.0f}".format(x, y) for x, y in coords[1:])
         sections.append(
             "<h2>All-time best peak: {:.4f} <small>(island {})</small></h2>".format(mx, esc(best_ts))
             + "<svg viewBox='0 0 {0} {1}' width='100%'><path d='{2}' "
-              "fill='none' stroke='#b48ead' stroke-width='2'/></svg>".format(w, h, pts))
+              "fill='none' stroke='#b48ead' stroke-width='2'/></svg>".format(w, h, svg_path(coords)))
 
     rows = "".join(
         "<tr><td>{ts}</td><td>{peak}</td><td>{gens}</td><td>{lvl}</td><td>{asc}</td><td>{hits}</td><td>{seed}</td></tr>".format(
@@ -107,14 +114,12 @@ def main():
         mx = max(pts) or 1
         coords = [(i / len(pts) * w, h - pts[i] / mx * h)
                   for i in range(len(pts))]
-        path = "M{:.0f} {:.0f}".format(*coords[0]) + " ".join(
-            " L{:.0f} {:.0f}".format(x, y) for x, y in coords[1:])
         asc_text = ""
         if asc:
             asc_text = " &middot; ascended {}x (now L{})".format(len(asc), final_level)
         sections.append(
             "<h2>Latest island curve (peak {}{})</h2>".format(latest.get("peak"), asc_text)
-            + "<svg viewBox='0 0 {0} {1}' width='100%'><path d='{2}' fill='none' stroke='#7fb3d5'/></svg>".format(w, h, path))
+            + "<svg viewBox='0 0 {0} {1}' width='100%'><path d='{2}' fill='none' stroke='#7fb3d5'/></svg>".format(w, h, svg_path(coords)))
 
     if mathf:
         hits = mathf.get("hits") or []
