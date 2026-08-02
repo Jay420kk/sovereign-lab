@@ -57,5 +57,15 @@
   "seed_level": 4,
   "ascensions": 0,
   "math_hits": 11
+ },
+ {
+  "ts": "2026-08-02T08:05:38Z",
+  "peak": 0.9872485663317202,
+  "gens": 333,
+  "level": 11,
+  "task": "moving",
+  "seed_level": 4,
+  "ascensions": 7,
+  "math_hits": 11
  }
 ]
