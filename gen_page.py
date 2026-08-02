@@ -55,7 +55,7 @@ def main():
         mx = max(peaks) or 1
         best_ts = next((ts for ts, p in reversed(pairs) if p == mx), "")
         n = len(pairs)
-        w, h = 800, 60
+        w = 800
         # Normalize across the observed range, not 0->max: island peaks cluster
         # near 0.97-1.0, so a 0-based scale flattens the sparkline into a
         # straight line at the top. Pad the low end by 15% of the span so the
@@ -85,7 +85,9 @@ def main():
             xs = [(t - t0).total_seconds() / span_s * w for t in times]
         else:
             xs = [i / max(1, n - 1) * w for i in range(n)]
-        coords = [(x, h - (p - base) / (hi - base) * (h - 8) - 4)
+        top_pad = 24  # headroom above the chart for the peak label
+        h = 60 + top_pad
+        coords = [(x, top_pad + 4 + (h - top_pad - 8) * (1 - (p - base) / (hi - base)))
                   for x, p in zip(xs, peaks)]
         # Color-code the stroke by peak value: a vertical linearGradient where
         # the top of the path (highest peak, closest to 1.0) is gold and the
@@ -95,11 +97,28 @@ def main():
                 "<stop offset='0%' stop-color='#e5c07b'/>"
                 "<stop offset='100%' stop-color='#b48ead'/>"
                 "</linearGradient></defs>")
+        # Mark the best run on the chart: a gold dot on the highest point with
+        # its peak value + island timestamp just above, clamped horizontally so
+        # the label never clips out of the viewBox when the peak sits near an
+        # edge. The dot stays on the true point; only the text is centered on
+        # the clamped x.
+        best_i = next(i for i in range(len(peaks) - 1, -1, -1) if peaks[i] == mx)
+        bx, by = coords[best_i]
+        lx = min(max(bx, 80), w - 80)
+        peak_label = (
+            "<circle cx='{:.0f}' cy='{:.0f}' r='3.5' fill='#e5c07b'/>".format(bx, by)
+            + "<text x='{:.0f}' y='{:.0f}' text-anchor='middle' fill='#e5c07b' "
+              "font-size='12' font-family='monospace'>{:.4f}</text>".format(lx, by - 8, mx)
+            + "<text x='{:.0f}' y='{:.0f}' text-anchor='middle' fill='#7c8698' "
+              "font-size='9' font-family='monospace'>island {}</text>".format(lx, by - 20, esc(best_ts))
+        )
         sections.append(
             "<h2>All-time best peak: {:.4f} <small>(island {})</small></h2>".format(mx, esc(best_ts))
             + "<svg viewBox='0 0 {0} {1}' width='100%'>".format(w, h)
             + grad
-            + "<path d='{0}' fill='none' stroke='url(#peakgrad)' stroke-width='2'/></svg>".format(svg_path(coords)))
+            + "<path d='{0}' fill='none' stroke='url(#peakgrad)' stroke-width='2'/>".format(svg_path(coords))
+            + peak_label
+            + "</svg>")
 
     rows = "".join(
         "<tr><td>{ts}</td><td>{peak}</td><td>{gens}</td><td>{lvl}</td><td>{asc}</td><td>{hits}</td><td>{seed}</td></tr>".format(
