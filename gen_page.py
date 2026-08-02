@@ -46,12 +46,22 @@ def main():
                         if i.get("peak") == mx), "")
         n = len(peaks)
         w, h = 800, 60
-        pts = " ".join(
-            "L{:.0f} {:.0f}".format(i / max(1, n - 1) * w, h - p / mx * (h - 8) - 4)
-            for i, p in enumerate(peaks))
+        # Normalize across the observed range, not 0->max: island peaks cluster
+        # near 0.97-1.0, so a 0-based scale flattens the sparkline into a
+        # straight line at the top. Pad the low end by 15% of the span so the
+        # worst island isn't glued to the baseline; the all-equal case is
+        # guarded by `span = hi - lo or 1`. The path starts on the first point
+        # instead of a vertical drop from the baseline.
+        lo, hi = min(peaks), max(peaks)
+        span = hi - lo or 1
+        base = lo - 0.15 * span
+        coords = [(i / max(1, n - 1) * w, h - (p - base) / (hi - base) * (h - 8) - 4)
+                  for i, p in enumerate(peaks)]
+        pts = "M{:.0f} {:.0f}".format(*coords[0]) + " ".join(
+            " L{:.0f} {:.0f}".format(x, y) for x, y in coords[1:])
         sections.append(
             "<h2>All-time best peak: {:.4f} <small>(island {})</small></h2>".format(mx, esc(best_ts))
-            + "<svg viewBox='0 0 {0} {1}' width='100%'><path d='M0 {1} {2}' "
+            + "<svg viewBox='0 0 {0} {1}' width='100%'><path d='{2}' "
               "fill='none' stroke='#b48ead' stroke-width='2'/></svg>".format(w, h, pts))
 
     rows = "".join(
@@ -74,15 +84,16 @@ def main():
         pts = scores[::step]
         w, h = 800, 180
         mx = max(pts) or 1
-        path = " ".join(
-            "L{:.0f} {:.0f}".format(i / len(pts) * w, h - pts[i] / mx * h)
-            for i in range(len(pts)))
+        coords = [(i / len(pts) * w, h - pts[i] / mx * h)
+                  for i in range(len(pts))]
+        path = "M{:.0f} {:.0f}".format(*coords[0]) + " ".join(
+            " L{:.0f} {:.0f}".format(x, y) for x, y in coords[1:])
         asc_text = ""
         if asc:
             asc_text = " &middot; ascended {}x (now L{})".format(len(asc), final_level)
         sections.append(
             "<h2>Latest island curve (peak {}{})</h2>".format(latest.get("peak"), asc_text)
-            + "<svg viewBox='0 0 {0} {1}' width='100%'><path d='M0 {1} {2}' fill='none' stroke='#7fb3d5'/></svg>".format(w, h, path))
+            + "<svg viewBox='0 0 {0} {1}' width='100%'><path d='{2}' fill='none' stroke='#7fb3d5'/></svg>".format(w, h, path))
 
     if mathf:
         hits = mathf.get("hits") or []
