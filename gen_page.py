@@ -87,10 +87,19 @@ def main():
             xs = [i / max(1, n - 1) * w for i in range(n)]
         coords = [(x, h - (p - base) / (hi - base) * (h - 8) - 4)
                   for x, p in zip(xs, peaks)]
+        # Color-code the stroke by peak value: a vertical linearGradient where
+        # the top of the path (highest peak, closest to 1.0) is gold and the
+        # bottom (lowest peak) is rose. objectBoundingBox units tie the stops
+        # to the path's own bbox, so the mapping stays exact as data changes.
+        grad = ("<defs><linearGradient id='peakgrad' x1='0' y1='0' x2='0' y2='1'>"
+                "<stop offset='0%' stop-color='#e5c07b'/>"
+                "<stop offset='100%' stop-color='#b48ead'/>"
+                "</linearGradient></defs>")
         sections.append(
             "<h2>All-time best peak: {:.4f} <small>(island {})</small></h2>".format(mx, esc(best_ts))
-            + "<svg viewBox='0 0 {0} {1}' width='100%'><path d='{2}' "
-              "fill='none' stroke='#b48ead' stroke-width='2'/></svg>".format(w, h, svg_path(coords)))
+            + "<svg viewBox='0 0 {0} {1}' width='100%'>".format(w, h)
+            + grad
+            + "<path d='{0}' fill='none' stroke='url(#peakgrad)' stroke-width='2'/></svg>".format(svg_path(coords)))
 
     rows = "".join(
         "<tr><td>{ts}</td><td>{peak}</td><td>{gens}</td><td>{lvl}</td><td>{asc}</td><td>{hits}</td><td>{seed}</td></tr>".format(
