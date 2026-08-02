@@ -39,12 +39,13 @@ def main():
     sections = []
 
     # all-time best peak + a sparkline of every island's peak
-    peaks = [i.get("peak") for i in islands if isinstance(i.get("peak"), (int, float))]
-    if peaks:
+    pairs = [(i.get("ts", ""), i.get("peak")) for i in islands
+             if isinstance(i.get("peak"), (int, float))]
+    if pairs:
+        peaks = [p for _, p in pairs]
         mx = max(peaks) or 1
-        best_ts = next((i.get("ts", "") for i in reversed(islands)
-                        if i.get("peak") == mx), "")
-        n = len(peaks)
+        best_ts = next((ts for ts, p in reversed(pairs) if p == mx), "")
+        n = len(pairs)
         w, h = 800, 60
         # Normalize across the observed range, not 0->max: island peaks cluster
         # near 0.97-1.0, so a 0-based scale flattens the sparkline into a
@@ -55,8 +56,28 @@ def main():
         lo, hi = min(peaks), max(peaks)
         span = hi - lo or 1
         base = lo - 0.15 * span
-        coords = [(i / max(1, n - 1) * w, h - (p - base) / (hi - base) * (h - 8) - 4)
-                  for i, p in enumerate(peaks)]
+
+        # Time-based x-axis: place each island at its real timestamp offset so
+        # uneven gaps (island pacing) are visible rather than evenly faked.
+        # If any timestamp is missing/unparseable, fall back to even spacing.
+        def _parse_ts(s):
+            if not s:
+                return None
+            try:
+                t = datetime.fromisoformat(s.replace("Z", "+00:00"))
+                return t if t.tzinfo else t.replace(tzinfo=timezone.utc)
+            except ValueError:
+                return None
+
+        times = [_parse_ts(ts) for ts, _ in pairs]
+        if all(t is not None for t in times):
+            t0, t1 = min(times), max(times)
+            span_s = (t1 - t0).total_seconds() or 1
+            xs = [(t - t0).total_seconds() / span_s * w for t in times]
+        else:
+            xs = [i / max(1, n - 1) * w for i in range(n)]
+        coords = [(x, h - (p - base) / (hi - base) * (h - 8) - 4)
+                  for x, p in zip(xs, peaks)]
         pts = "M{:.0f} {:.0f}".format(*coords[0]) + " ".join(
             " L{:.0f} {:.0f}".format(x, y) for x, y in coords[1:])
         sections.append(
