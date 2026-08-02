@@ -124,15 +124,16 @@ def main():
             + "</svg>")
 
     rows = "".join(
-        "<tr><td>{ts}</td><td>{peak}</td><td>{gens}</td><td>{lvl}</td><td>{asc}</td><td>{hits}</td><td>{seed}</td></tr>".format(
+        "<tr><td>{ts}</td><td>{peak}</td><td>{gens}</td><td>{lvl}</td><td>{task}</td><td>{asc}</td><td>{hits}</td><td>{seed}</td></tr>".format(
             ts=esc(i.get("ts", "")), peak=i.get("peak", "?"),
             gens=i.get("gens", "?"), lvl=i.get("level", "?"),
-            asc=i.get("ascensions", 0), hits=i.get("math_hits", "?"),
+            task=esc(i.get("task", "?")), asc=i.get("ascensions", 0),
+            hits=i.get("math_hits", "?"),
             seed=("L{}".format(i["seed_level"]) if i.get("seed_level") is not None else "-"))
         for i in islands[-30:][::-1])
     sections.append(
         "<h2>Cloud islands (past 30 of {n})</h2>".format(n=len(islands))
-        + "<table><tr><th>time (UTC)</th><th>peak</th><th>gens</th><th>level</th><th>ascensions</th><th>math hits</th><th>seeded</th></tr>"
+        + "<table><tr><th>time (UTC)</th><th>peak</th><th>gens</th><th>level</th><th>task</th><th>ascensions</th><th>math hits</th><th>seeded</th></tr>"
         + rows + "</table>" if rows else "<h2>Cloud islands</h2><p>no islands yet</p>")
 
     if latest and latest.get("scores"):

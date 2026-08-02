@@ -131,6 +131,7 @@ def main():
         "peak": max(scores),
         "gens": len(scores),  # actual gens completed (deadline-bound), not the cap
         "level": ev.get("final_level", 0),
+        "task": ev.get("task", "?"),
         "seed_level": ev.get("seed_level"),
         "ascensions": len(ev.get("ascensions", [])),
         "math_hits": len(mathf.get("hits", [])),

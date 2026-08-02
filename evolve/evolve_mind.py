@@ -4,17 +4,28 @@
 No backprop, no gradients, no human-designed task priors beyond the
 physics of the arena. Just: population -> mutate -> score -> select.
 
-The task: a 2D agent with a fixed small network must HOME to food.
+The task: a 2D agent with a small network must REACH food.
 Scoring is 1/(1 + dist/dist_scale) — smooth selection pressure, max 1.0.
 
-OPEN-ENDED ESCALATION: when the population sustains best >= threshold
-for N consecutive generations, the task ASCENDS a level: bigger arena,
-longer runs, a larger brain (old weights embedded top-left, rest random).
-The learned structure survives; the brain grows. This keeps evolution
-under pressure past any single plateau.
+UNBOUNDED ESCALATION: levels are generated procedurally from the level
+number — there is no maximum level, so escalation never caps. Two task
+types (a task switch is a genuinely new competence):
 
-Sensors are arena-normalized (x/clamp, y/clamp), so scores stay
-comparable across levels.
+  - "static": home to a stationary food source (pure homing)
+  - "moving": intercept food that moves & bounces off walls (pursuit)
+    the brain gains 2 velocity sensors (8 inputs), so it must predict
+    where the target WILL be, not chase where it IS.
+
+Ascension triggers (automatic, always progresses):
+  1. THRESHOLD  — best >= 0.98 sustained N gens (fast levels)
+  2. PLATEAU    — no real improvement for `plateau_window` gens while
+                  best >= floor (the population has saturated: push on)
+  3. HARD STALL — stalled 3x window regardless of floor (never dead-end:
+                  give it a bigger brain + a harder task anyway)
+
+Sensors are arena-normalized, so scores stay comparable across levels.
+The old brain's weights are embedded top-left into the bigger net, so
+learned structure survives each ascent.
 
 Usage: python3 evolve_mind.py [generations]
 """
@@ -28,17 +39,31 @@ from pathlib import Path
 OUT_DIR = Path(__file__).parent
 LOGDIR = OUT_DIR / "logs"
 
-# input width (6 sensors) and output width (2D dx,dy movement) are FIXED;
-# escalation grows only the hidden layer. Growing input/output widths would
-# break score_brain (it feeds 6 sensors and unpacks exactly 2 outputs).
-LEVELS = [
-    dict(layers=[6, 6, 2], food_r=4.0, steps=300, trials=8, clamp=6.0, dist_scale=1.5),
-    dict(layers=[6, 8, 2], food_r=8.0, steps=400, trials=8, clamp=12.0, dist_scale=3.0),
-    dict(layers=[6, 10, 2], food_r=16.0, steps=500, trials=10, clamp=24.0, dist_scale=6.0),
-    dict(layers=[6, 14, 2], food_r=32.0, steps=600, trials=12, clamp=48.0, dist_scale=12.0),
-    dict(layers=[6, 18, 2], food_r=64.0, steps=700, trials=14, clamp=96.0, dist_scale=24.0),
-]
-MAX_LEVEL = len(LEVELS) - 1
+
+def level_config(level):
+    """Procedural level definition — UNBOUNDED. Difficulty scales with level.
+
+    - brain: hidden width grows; input width is 6 (static) or 8 (moving)
+    - arena: food_r grows geometrically; clamp and dist_scale scale with it
+      (normalized resolution stays comparable, so scores remain meaningful)
+    - compute caps keep per-generation cost sane at extreme levels
+    - moving: target speed rises toward the agent's max speed (0.25/step),
+      so required interception precision grows without bound
+    """
+    l = max(0, int(level))
+    task_type = "static" if l < 5 else "moving"
+    hidden = min(6 + 2 * l, 40)
+    in_w = 8 if task_type == "moving" else 6
+    food_r = 4.0 * (1.35 ** l)
+    clamp = 1.5 * food_r
+    dist_scale = max(1.5, food_r * (0.25 if task_type == "moving" else 0.375))
+    steps = min(300 + 60 * l, 1500)
+    trials = min(8 + l, 20)
+    speed = 0.0 if task_type == "static" else min(0.12 * (1.08 ** (l - 4)), 0.24)
+    return dict(task=task_type, layers=[in_w, hidden, 2],
+                food_r=round(food_r, 4), steps=steps, trials=trials,
+                clamp=round(clamp, 4), dist_scale=round(dist_scale, 4),
+                speed=round(speed, 4))
 
 
 def make_brain(seed=None, sizes=(6, 6, 2)):
@@ -83,20 +108,39 @@ def grow_brain(b, new_sizes):
 
 def score_brain(b, task, rng):
     total = 0.0
+    moving = task["task"] == "moving"
+    speed = task.get("speed", 0.0)
     for _ in range(task["trials"]):
         fx = rng.uniform(-task["food_r"], task["food_r"])
         fy = rng.uniform(-task["food_r"], task["food_r"])
+        vx = vy = 0.0
+        if moving and speed > 0:
+            ang = rng.uniform(0, 2 * math.pi)
+            vx, vy = math.cos(ang) * speed, math.sin(ang) * speed
         x, y = 0.0, 0.0
         min_dist = math.hypot(x - fx, y - fy)
         for s in range(task["steps"]):
             sens = [x / task["clamp"], y / task["clamp"],
-                    fx / task["clamp"], fy / task["clamp"],
-                    math.sin(0.05 * s), math.cos(0.05 * s)]
+                    fx / task["clamp"], fy / task["clamp"]]
+            if moving:
+                sens += [vx / speed if speed else 0.0, vy / speed if speed else 0.0]
+            sens += [math.sin(0.05 * s), math.cos(0.05 * s)]
             dx, dy = brain_fwd(b, sens)
             x += 0.25 * dx
             y += 0.25 * dy
             x = max(-task["clamp"], min(task["clamp"], x))
             y = max(-task["clamp"], min(task["clamp"], y))
+            if moving:
+                fx += vx
+                fy += vy
+                if fx > task["clamp"]:
+                    fx = 2 * task["clamp"] - fx; vx = -vx
+                elif fx < -task["clamp"]:
+                    fx = -2 * task["clamp"] - fx; vx = -vx
+                if fy > task["clamp"]:
+                    fy = 2 * task["clamp"] - fy; vy = -vy
+                elif fy < -task["clamp"]:
+                    fy = -2 * task["clamp"] - fy; vy = -vy
             d = math.hypot(x - fx, y - fy)
             min_dist = min(min_dist, d)
         total += 1.0 / (1.0 + min_dist / task["dist_scale"])
@@ -138,8 +182,9 @@ def _make_pool():
 
 
 def run(generations=200, pop_size=64, ascend_threshold=0.98, ascend_streak_req=5,
+        plateau_window=20, plateau_eps=0.003, plateau_floor=0.85,
         deadline=None, seed=None):
-    """Evolve; ASCEND levels when the task is solved. Returns best-score list.
+    """Evolve; ASCEND levels automatically and without bound.
 
     deadline: unix ts — the loop stops cleanly at the budget, so callers
     (worker islands) always get results even if escalation slowed things down.
@@ -155,22 +200,23 @@ def run(generations=200, pop_size=64, ascend_threshold=0.98, ascend_streak_req=5
     LOGDIR.mkdir(exist_ok=True)
     rng = random.Random()
     if seed and seed.get("w1") and seed.get("w2"):
-        level = min(max(int(seed.get("level") or 0), 0), MAX_LEVEL)
-        task = LEVELS[level]
+        level = max(0, int(seed.get("level") or 0))
+        task = level_config(level)
         pop = [grow_brain(seed, task["layers"])] + \
               [make_brain(None, task["layers"]) for _ in range(pop_size - 1)]
-        print(f"seeded population at level {level} (layers={task['layers']}) "
-              f"from previous island's best", flush=True)
+        print(f"seeded population at level {level} (task={task['task']} "
+              f"layers={task['layers']}) from previous island's best", flush=True)
     else:
         level = 0
-        task = LEVELS[level]
+        task = level_config(level)
         pop = [make_brain(i, task["layers"]) for i in range(pop_size)]
 
     pool = _make_pool()
     try:
         best_scores, ascensions, level, task, best = _run_generations(
             pop, level, task, rng, pool,
-            generations, pop_size, ascend_threshold, ascend_streak_req, deadline)
+            generations, pop_size, ascend_threshold, ascend_streak_req,
+            plateau_window, plateau_eps, plateau_floor, deadline)
     finally:
         if pool is not None:
             pool.close()
@@ -180,7 +226,8 @@ def run(generations=200, pop_size=64, ascend_threshold=0.98, ascend_streak_req=5
     out = {
         "final_level": level,
         "seed_level": seed.get("level") if seed and seed.get("w1") else None,
-        "levels": [l["layers"] for l in LEVELS],
+        "task": task["task"],
+        "layers": task["layers"],
         "ascensions": ascensions,
         "scores": best_scores,
     }
@@ -188,19 +235,23 @@ def run(generations=200, pop_size=64, ascend_threshold=0.98, ascend_streak_req=5
         json.dump(out, f)
     with open(LOGDIR / "evolve_best.json", "w") as f:
         json.dump({"level": level, "layers": task["layers"], **best}, f)
-    print(f"done. level {level}, peak={max(best_scores):.4f}, "
-          f"ascensions={len(ascensions)}  -> {LOGDIR/'evolve_scores.json'}")
+    print(f"done. level {level} (task={task['task']} layers={task['layers']}), "
+          f"peak={max(best_scores):.4f}, ascensions={len(ascensions)}  -> "
+          f"{LOGDIR/'evolve_scores.json'}")
     return best_scores
 
 
 def _run_generations(pop, level, task, rng, pool, generations, pop_size,
-                     ascend_threshold, ascend_streak_req, deadline):
+                     ascend_threshold, ascend_streak_req, plateau_window,
+                     plateau_eps, plateau_floor, deadline):
     """The generation loop: score (parallel if pool given) -> mutate -> select.
 
     Returns (best_scores, ascensions, final_level, final_task, best_brain).
     """
     best_scores, ascensions = [], []
     streak = 0
+    stall = 0
+    level_best = 0.0
     t0 = time.time()
     best = pop[0]  # so generations=0 still writes a valid best brain
 
@@ -218,18 +269,33 @@ def _run_generations(pop, level, task, rng, pool, generations, pop_size,
         best_score, best = scored[0]
         best_scores.append(best_score)
         tag = ""
-        if best_score >= ascend_threshold:
-            streak += 1
-            if streak >= ascend_streak_req and level < MAX_LEVEL:
-                ascensions.append({"level": level, "gen": gen, "peak": round(best_score, 4)})
-                level += 1
-                task = LEVELS[level]
-                pop = [grow_brain(best, task["layers"])] + \
-                      [make_brain(None, task["layers"]) for _ in range(pop_size - 1)]
-                streak = 0
-                tag = f"  *** ASCENDED to level {level} layers={task['layers']} at gen {gen} ***"
+
+        # -- ascension bookkeeping -----------------------------------------
+        streak = streak + 1 if best_score >= ascend_threshold else 0
+        if best_score > level_best + plateau_eps:
+            level_best = best_score
+            stall = 0
         else:
+            stall += 1
+
+        do_ascend = (
+            streak >= ascend_streak_req          # 1: solved the current task
+            or (stall >= plateau_window and best_score >= plateau_floor)  # 2: saturated
+            or stall >= plateau_window * 3       # 3: hard stall — never dead-end
+        )
+        if do_ascend:
+            ascensions.append({"level": level, "gen": gen, "peak": round(best_score, 4),
+                               "task": task["task"]})
+            level += 1
+            task = level_config(level)
+            pop = [grow_brain(best, task["layers"])] + \
+                  [make_brain(None, task["layers"]) for _ in range(pop_size - 1)]
             streak = 0
+            stall = 0
+            level_best = 0.0
+            tag = (f"  *** ASCENDED to level {level} (task={task['task']} "
+                   f"layers={task['layers']}) at gen {gen} ***")
+
         if gen % 10 == 0 or gen == generations - 1 or tag:
             print(f"gen {gen:4d}  level {level}  best={best_score:.4f}  "
                   f"elapsed={time.time()-t0:.0f}s{tag}", flush=True)

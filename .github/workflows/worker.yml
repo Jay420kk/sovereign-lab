@@ -9,14 +9,6 @@ on:
         description: "Worker budget in minutes (small value = quick test)"
         required: false
         default: "300"
-  push:
-    branches: [main]
-    paths:
-      - "evolve/**"
-      - "math-discovery/**"
-      - "worker.py"
-      - "gen_page.py"
-      - ".github/workflows/**"
 
 permissions:
   contents: write
