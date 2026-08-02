@@ -119,7 +119,7 @@ def main():
     # 2) math discovery — bounded by remaining budget
     remaining = deadline - time.time()
     print(f"[worker] math: remaining {remaining:.0f}s", flush=True)
-    math_discovery.main(80, deadline=deadline)
+    math_discovery.main(120, deadline=deadline)
     with open(LOGDIR / "math_findings.json", "w") as f:
         f.write((ROOT / "math-discovery" / "logs" / "math_findings.json").read_text())
 

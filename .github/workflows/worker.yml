@@ -29,6 +29,9 @@ jobs:
           BUDGET: ${{ inputs.budget_min }}
         run: python3 worker.py "${BUDGET:-300}"
 
+      - name: Render brain replay
+        run: python3 replay.py || true
+
       - name: Commit results
         run: |
           git config user.name "sovereign-lab worker"

@@ -8,13 +8,17 @@ The task: a 2D agent with a small network must REACH food.
 Scoring is 1/(1 + dist/dist_scale) — smooth selection pressure, max 1.0.
 
 UNBOUNDED ESCALATION: levels are generated procedurally from the level
-number — there is no maximum level, so escalation never caps. Two task
+number — there is no maximum level, so escalation never caps. Three task
 types (a task switch is a genuinely new competence):
 
   - "static": home to a stationary food source (pure homing)
   - "moving": intercept food that moves & bounces off walls (pursuit)
     the brain gains 2 velocity sensors (8 inputs), so it must predict
     where the target WILL be, not chase where it IS.
+  - "hunted": a predator chases the agent while it must still reach food
+    (approach AND evasion). Brain gains predator position + velocity
+    sensors (10 inputs). Predator speed rises toward the agent's max,
+    so interception difficulty is unbounded even within this task.
 
 Ascension triggers (automatic, always progresses):
   1. THRESHOLD  — best >= 0.98 sustained N gens (fast levels)
@@ -51,19 +55,30 @@ def level_config(level):
       so required interception precision grows without bound
     """
     l = max(0, int(level))
-    task_type = "static" if l < 5 else "moving"
+    if l < 5:
+        task_type = "static"
+    elif l < 9:
+        task_type = "moving"
+    else:
+        task_type = "hunted"
     hidden = min(6 + 2 * l, 40)
-    in_w = 8 if task_type == "moving" else 6
+    in_w = 6 if task_type == "static" else (8 if task_type == "moving" else 10)
     food_r = 4.0 * (1.35 ** l)
     clamp = 1.5 * food_r
-    dist_scale = max(1.5, food_r * (0.25 if task_type == "moving" else 0.375))
+    dist_scale = max(1.5, food_r * (0.25 if task_type != "static" else 0.375))
     steps = min(300 + 60 * l, 1500)
     trials = min(8 + l, 20)
     speed = 0.0 if task_type == "static" else min(0.12 * (1.08 ** (l - 4)), 0.24)
+    # hunted: predator speed rises toward the agent's max (0.25/step) so the
+    # evasion problem grows harder without bound
+    predator_speed = (min(0.14 + 0.008 * (l - 8), 0.23)
+                      if task_type == "hunted" else 0.0)
+    catch_r = 1.5
     return dict(task=task_type, layers=[in_w, hidden, 2],
                 food_r=round(food_r, 4), steps=steps, trials=trials,
                 clamp=round(clamp, 4), dist_scale=round(dist_scale, 4),
-                speed=round(speed, 4))
+                speed=round(speed, 4), predator_speed=round(predator_speed, 4),
+                catch_r=catch_r)
 
 
 def make_brain(seed=None, sizes=(6, 6, 2)):
@@ -108,8 +123,12 @@ def grow_brain(b, new_sizes):
 
 def score_brain(b, task, rng):
     total = 0.0
-    moving = task["task"] == "moving"
+    task_type = task["task"]
+    moving = task_type == "moving"
+    hunted = task_type == "hunted"
     speed = task.get("speed", 0.0)
+    pspeed = task.get("predator_speed", 0.0)
+    catch_r = task.get("catch_r", 1.5)
     for _ in range(task["trials"]):
         fx = rng.uniform(-task["food_r"], task["food_r"])
         fy = rng.uniform(-task["food_r"], task["food_r"])
@@ -117,13 +136,33 @@ def score_brain(b, task, rng):
         if moving and speed > 0:
             ang = rng.uniform(0, 2 * math.pi)
             vx, vy = math.cos(ang) * speed, math.sin(ang) * speed
+        # predator spawns at a random point on the arena edge, moving toward
+        # the agent from the start (never spawns on top of the agent)
+        px = py = 0.0
+        pvx = pvy = 0.0
+        if hunted:
+            ang = rng.uniform(0, 2 * math.pi)
+            px, py = math.cos(ang) * task["clamp"] * 0.9, math.sin(ang) * task["clamp"] * 0.9
         x, y = 0.0, 0.0
+        caught = False
         min_dist = math.hypot(x - fx, y - fy)
         for s in range(task["steps"]):
+            if hunted:
+                # predator chases the agent's current position, clamped speed
+                dxp, dyp = x - px, y - py
+                pn = math.hypot(dxp, dyp) or 1.0
+                pvx, pvy = dxp / pn * pspeed, dyp / pn * pspeed
+                px += pvx
+                py += pvy
+                if math.hypot(x - px, y - py) < catch_r:
+                    caught = True
             sens = [x / task["clamp"], y / task["clamp"],
                     fx / task["clamp"], fy / task["clamp"]]
             if moving:
                 sens += [vx / speed if speed else 0.0, vy / speed if speed else 0.0]
+            if hunted:
+                sens += [px / task["clamp"], py / task["clamp"],
+                         pvx / pspeed if pspeed else 0.0, pvy / pspeed if pspeed else 0.0]
             sens += [math.sin(0.05 * s), math.cos(0.05 * s)]
             dx, dy = brain_fwd(b, sens)
             x += 0.25 * dx
@@ -143,7 +182,12 @@ def score_brain(b, task, rng):
                     fy = -2 * task["clamp"] - fy; vy = -vy
             d = math.hypot(x - fx, y - fy)
             min_dist = min(min_dist, d)
-        total += 1.0 / (1.0 + min_dist / task["dist_scale"])
+            if caught:
+                break  # trial over early: caught
+        trial = 1.0 / (1.0 + min_dist / task["dist_scale"])
+        if hunted and caught:
+            trial *= 0.3  # eaten: heavy penalty, some credit for getting close
+        total += trial
     return total / task["trials"]
 
 

@@ -153,6 +153,11 @@ def main():
             "<h2>Latest island curve (peak {}{})</h2>".format(latest.get("peak"), asc_text)
             + "<svg viewBox='0 0 {0} {1}' width='100%'><path d='{2}' fill='none' stroke='#7fb3d5'/></svg>".format(w, h, svg_path(coords)))
 
+    # Watch the best brain hunt (replayed by replay.py on the worker)
+    replay = (LOGS / "replay.svg").read_text() if (LOGS / "replay.svg").exists() else ""
+    if replay:
+        sections.append("<h2>Watch the best brain hunt</h2>" + replay)
+
     if mathf:
         hits = mathf.get("hits") or []
         hs = "<br>".join(esc(str(h)) for h in hits) if hits else "none (expected)"
