@@ -117,5 +117,15 @@
   "seed_level": 35,
   "ascensions": 6,
   "math_hits": 15
+ },
+ {
+  "ts": "2026-08-03T10:19:03Z",
+  "peak": 0.4009608926557286,
+  "gens": 685,
+  "level": 48,
+  "task": "hunted",
+  "seed_level": 41,
+  "ascensions": 7,
+  "math_hits": 15
  }
 ]
