@@ -1,15 +1,5 @@
 [
  {
-  "ts": "2026-08-19T16:14:30Z",
-  "peak": 0.3876377041913389,
-  "gens": 685,
-  "level": 410,
-  "task": "hunted",
-  "seed_level": 404,
-  "ascensions": 6,
-  "math_hits": 15
- },
- {
   "ts": "2026-08-19T20:14:52Z",
   "peak": 0.3938229828465056,
   "gens": 685,
@@ -497,6 +487,16 @@
   "task": "hunted",
   "seed_level": 721,
   "ascensions": 6,
+  "math_hits": 15
+ },
+ {
+  "ts": "2026-09-02T15:53:21Z",
+  "peak": 0.3943131288726699,
+  "gens": 684,
+  "level": 734,
+  "task": "hunted",
+  "seed_level": 727,
+  "ascensions": 7,
   "math_hits": 15
  }
 ]
