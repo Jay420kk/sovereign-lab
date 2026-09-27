@@ -490,13 +490,13 @@
   "math_hits": 15
  },
  {
-  "ts": "2026-09-27T13:24:52Z",
-  "peak": 0.40596462735826916,
-  "gens": 683,
-  "level": 1260,
+  "ts": "2026-09-27T17:25:16Z",
+  "peak": 0.4034376968255956,
+  "gens": 684,
+  "level": 1265,
   "task": "hunted",
-  "seed_level": 1255,
-  "ascensions": 5,
+  "seed_level": 1258,
+  "ascensions": 7,
   "math_hits": 15
  }
 ]
